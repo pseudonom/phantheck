@@ -1,10 +1,12 @@
+{-# LANGUAGE TupleSections #-}
+
 module Template where
 
 import           Control.Applicative ((<$>))
+import           Control.Arrow       ((***))
 import           Data.Function       (on)
 import           Data.List           (nubBy, stripPrefix)
-import           Data.List.Split     (splitOn)
-import           Data.Maybe          (catMaybes, fromJust)
+import           Data.Maybe          (catMaybes)
 import           Language.Haskell.TH (Name, Pred, Q, TyVarBndr (PlainTV),
                                       Type (ForallT), TypeQ, appT, conT, equalP,
                                       forallT, mkName, nameBase, promotedConsT,
@@ -12,36 +14,41 @@ import           Language.Haskell.TH (Name, Pred, Q, TyVarBndr (PlainTV),
                                       runIO, varT)
 import           Prelude             hiding (pred)
 
+import           Data.List.Split     (splitOn)
+import           Text.Regex.PCRE     ((=~))
+
 type Postcondition = TypeQ
 type Precondition = TypeQ
 
 -- Adds and preserves properties based on quickcheck functions and preconditions
 -- Generates predicate like:
 -- props' ~ Postconditions props '['(Ascending, '[]), '(NonNull, '[NonNull])]
-checkPost :: Name -> Name -> Name -> Q Pred
-checkPost f pres posts = pred =<< raise' . propSets .
-                              findPropLines <$> (runIO $ readFile "Demo.hs") where
-  pred = equalP (varT posts) . appT (appT (conT $ mkName "Postconditions") (varT pres))
-  findPropLines = catMaybes . fmap (stripPrefix ("prop_" ++ nameBase f ++ "_")) . lines
-  raise' :: [(Postcondition, [Precondition])] -> TypeQ
-  raise' = raise . fmap (\(post', pres') -> tuple post' (raise pres'))
-  tuple = appT . appT (promotedTupleT 2)
+checkPost :: FilePath -> Name -> Name -> Name -> Q Pred
+checkPost fp fn pres posts = pred =<< raise' . propSets .
+                              findPropLines <$> runIO (readFile fp) where
+  findPropLines = catMaybes . fmap (stripPrefix ("prop_" ++ nameBase fn ++ "_")) . lines
   propSets :: [String] -> [(Postcondition, [Precondition])]
-  propSets = fmap (\(a, b) -> (promotedT . mkName $ a,
-                               precondify . extract $ b)) .
+  propSets = catMaybes . fmap (\(a, b) -> fmap ((promotedT . mkName $ a,)
+                                                . precondify) $ extract b) .
              nubBy ((==) `on` fst) . fmap (break (== ' ')) where
-    extract = fst . break (== ']') . fromJust .
-              stripPrefix " :: Propertized '["
+    extract = fstMatch . (=~ "'\\[(.*?)\\]") where
+      fstMatch :: (String, String, String, [String]) -> Maybe String
+      fstMatch (_, _, _, x:_) = Just x
+      fstMatch x = Nothing
     precondify :: String -> [Precondition]
     precondify "" = []
     precondify xs = fmap (promotedT . mkName) . splitOn "," $ xs
+  raise' :: [(Postcondition, [Precondition])] -> TypeQ
+  raise' = raise . fmap (\(post', pres') -> tuple post' (raise pres')) where
+    tuple = appT . appT (promotedTupleT 2)
+  pred = equalP (varT posts) . appT (appT (conT $ mkName "Postconditions") (varT pres))
 
 addPost :: Name -> TypeQ -> TypeQ
-addPost f t = do
+addPost fn t = do
   (ForallT [PlainTV props, PlainTV props'] _ t') <- t
   forallT [PlainTV props, PlainTV props']
-    (sequence [checkPost f props props']) (return t')
+    (sequence [checkPost "Demo.hs" fn props props']) (return t')
 
 type TypeList = Type
 raise :: [TypeQ] -> Q TypeList
-raise = foldr (appT . (appT promotedConsT)) promotedNilT
+raise = foldr (appT . appT promotedConsT) promotedNilT

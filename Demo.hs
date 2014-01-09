@@ -26,7 +26,7 @@ head' = head . getPropertized
 
 minimum' :: (Precondition Ascending props,
              Precondition NonNull props) =>
-            Propertized props [a] -> a
+            Propertized props [Int] -> Int
 minimum' = head'
 
 sort' :: $(addPost 'sort' [t| props' =>
@@ -42,9 +42,12 @@ foo :: Int
 foo = minimum' . sort' $ unsorted
 
 {-
+If bar is uncommented, the following error is thrown
+during compilation, as hoped:
+
 Couldn't match type ‛'False’ with ‛'True’
 Expected type: 'True
-  Actual type: Elem 'Ascending '['NonNull]
+  Actual type: Type.Elem 'Ascending '['NonNull]
 In the expression: minimum' unsorted
 In an equation for ‛bar’: bar = minimum' unsorted
 -}
@@ -56,6 +59,18 @@ instance Arbitrary (Propertized '[] [Int]) where
   arbitrary = Propertize <$> arbitrary
 instance Arbitrary (Propertized '[NonNull] [Int]) where
   arbitrary = Propertize . getNonEmpty <$> arbitrary
+
+{-
+If prop_sort'_Ascending is commented, the following error is thrown
+during compilation, as hoped:
+
+Couldn't match type ‛'False’ with ‛'True’
+Expected type: 'True
+  Actual type: Type.Elem 'Ascending '['NonNull]
+In the first argument of ‛(.)’, namely ‛minimum'’
+In the expression: minimum' . sort'
+In the expression: minimum' . sort' $ unsorted
+-}
 
 -- Sorting adds Ascending
 prop_sort'_Ascending :: Propertized '[] [Int] -> Bool

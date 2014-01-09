@@ -32,15 +32,24 @@ type family If (b :: Bool) (t :: k) (f :: k) :: k where
   If True t f = t
   If False t f = f
 
--- Takes a set of preconditions,
--- a set of postconditions and their preconditional requirements,
--- and returns the postconditions which
--- have their preconditional requirements satisfied
+type family CatMaybes (xs :: [Maybe k]) :: [k] where
+  CatMaybes '[] = '[]
+  CatMaybes ('Just x ': xs) = x ': CatMaybes xs
+  CatMaybes ('Nothing ': xs) = CatMaybes xs
+
 type family Postconditions (pres :: [k]) (sets :: [(k, [k])]) :: [k] where
-  Postconditions pres '[] = '[]
-  Postconditions pres ('(post, reqs) ': sets) =
+  Postconditions xs ys = CatMaybes (Postconditions' xs ys)
+type family Postconditions' (pres :: [k]) (sets :: [(k, [k])]) :: [Maybe k] where
+  Postconditions' xs '[] = '[]
+  Postconditions' xs (y ': ys) = Postcondition xs y ': Postconditions' xs ys
+-- Takes a set of preconditions,
+-- a postcondition and its preconditional requirements,
+-- and returns Just the postcondition if its preconditional requirements are satisfied
+-- or Nothing if they aren't
+type family Postcondition (pres :: [k]) (post :: (k, [k])) :: Maybe k where
+  Postcondition pres '(post, reqs) =
     If (pres `Covers` reqs)
-      (post ': Postconditions pres sets)
-      (Postconditions pres sets)
+      ('Just post)
+      'Nothing
 
 type Precondition a props = (a `Elem` props) ~ True
