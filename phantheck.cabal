@@ -1,6 +1,6 @@
 name:                phantheck
 version:             0.1.0.0
-synopsis:            Integrates QuickChecked properties into the type system with phantom types
+synopsis:            Approximate dependent types with phantom types and QuickChecked properties
 
 -- A longer description of the package.
 -- description:         
