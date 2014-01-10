@@ -1,7 +1,7 @@
 Phantheck
 =========
 
-Approximate dependent types with phantom types and QuickChecked properties
+Integrate QuickChecked properties into the type system with phantom types
 
 What
 ------
