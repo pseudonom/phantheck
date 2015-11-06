@@ -1,11 +1,5 @@
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE TypeFamilies      #-}
-
 module Main where
 
-import           Control.Applicative ((<$>))
 import           Data.List           (sort)
 
 import           Test.QuickCheck     (Arbitrary (arbitrary), getNonEmpty,
@@ -22,27 +16,27 @@ newtype Propertized (props :: [Property]) a  =
 
 
 -- head' will only operate on lists which have the NonNull property
-head' :: (Precondition NonNull props) =>
+head' :: (Precondition 'NonNull props) =>
          Propertized props [a] -> a
 head' = head . getPropertized
 
 -- minimum' will only operate on lists which have
 -- the NonNull and Ascending properties
-minimum' :: (Precondition Ascending props,
-             Precondition NonNull props) =>
+minimum' :: (Precondition 'Ascending props,
+             Precondition 'NonNull props) =>
             Propertized props [Int] -> Int
 minimum' = head'
 
 -- sort' has no preconditions,
 -- addPost will add the Ascending property due to prop_sort'_Ascending
-sort' :: $(addPost 'sort' [t| props' =>
+sort' :: $(addPost 'sort' [t| forall props props'. props' =>
            Propertized props [Int] -> Propertized props' [Int]
          |])
 sort' = Propertize . sort . getPropertized
 
 
 -- A NonNull and unsorted list
-unsorted :: Propertized '[NonNull] [Int]
+unsorted :: Propertized '[ 'NonNull] [Int]
 unsorted = Propertize [2, 3, 1]
 
 -- Typechecks because sort' adds Ascending to unsorted
@@ -67,7 +61,7 @@ In an equation for ‛bar’: bar = minimum' unsorted
 
 instance Arbitrary (Propertized '[] [Int]) where
   arbitrary = Propertize <$> arbitrary
-instance Arbitrary (Propertized '[NonNull] [Int]) where
+instance Arbitrary (Propertized '[ 'NonNull] [Int]) where
   arbitrary = Propertize . getNonEmpty <$> arbitrary
 
 -- Property verifiers must follow the naming convention prop_fnName_PropName.
@@ -89,13 +83,13 @@ In the expression: minimum' . sort' $ unsorted
 -- Sorting adds Ascending
 prop_sort'_Ascending :: Propertized '[] [Int] -> Bool
 prop_sort'_Ascending (Propertize []) = True
-prop_sort'_Ascending xs = fst $ foldr (\c (b, p) -> (b && (c <= p), c))
-                          (True, last $ xs') xs' where
-  xs' = getPropertized . sort' $ xs
+prop_sort'_Ascending xs =
+  and $ zipWith (<=) xs' (tail xs') where
+    xs' = getPropertized . sort' $ xs
 
 -- Sorting preserves NonNull
-prop_sort'_NonNull :: Propertized '[NonNull] [Int] -> Bool
-prop_sort'_NonNull xs = not . null . getPropertized . sort' $ xs
+prop_sort'_NonNull :: Propertized '[ 'NonNull] [Int] -> Bool
+prop_sort'_NonNull = not . null . getPropertized . sort'
 
 
 main :: IO ()

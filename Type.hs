@@ -1,36 +1,29 @@
-{-# LANGUAGE ConstraintKinds            #-}
-{-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE PolyKinds                  #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE TypeOperators              #-}
-{-# LANGUAGE UndecidableInstances       #-}
-
 module Type where
 
 type family Equals (a :: k) (b :: k) :: Bool where
-  a `Equals` a = True
-  a `Equals` b = False
+  a `Equals` a = 'True
+  a `Equals` b = 'False
 
 type family Or (a :: Bool) (b :: Bool) :: Bool where
-  True `Or` b = True
-  a `Or` True = True
-  a `Or` b = False
+  'True `Or` b = 'True
+  a `Or` 'True = 'True
+  a `Or` b = 'False
 
 type family And (a :: Bool) (b :: Bool) :: Bool where
-  True `And` True = True
-  a `And` b = False
+  'True `And` 'True = 'True
+  a `And` b = 'False
 
 type family Elem (y :: k) (xs :: [k]) :: Bool where
-  y `Elem` '[] = False
+  y `Elem` '[] = 'False
   y `Elem` (x ': xs) = (y `Equals` x) `Or` (y `Elem` xs)
 
 type family Covers (xs :: [k]) (ys :: [k]) :: Bool where
-  xs `Covers` '[] = True
+  xs `Covers` '[] = 'True
   xs `Covers` (y ': ys) = (y `Elem` xs) `And` (xs `Covers` ys)
 
 type family If (b :: Bool) (t :: k) (f :: k) :: k where
-  If True t f = t
-  If False t f = f
+  If 'True t f = t
+  If 'False t f = f
 
 type family CatMaybes (xs :: [Maybe k]) :: [k] where
   CatMaybes '[] = '[]
@@ -52,4 +45,4 @@ type family Postcondition (pres :: [k]) (post :: (k, [k])) :: Maybe k where
       ('Just post)
       'Nothing
 
-type Precondition a props = (a `Elem` props) ~ True
+type Precondition a props = (a `Elem` props) ~ 'True

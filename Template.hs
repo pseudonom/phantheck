@@ -1,14 +1,10 @@
-{-# LANGUAGE TupleSections #-}
-
 module Template where
 
-import           Control.Applicative ((<$>))
-import           Control.Arrow       ((***))
 import           Data.Function       (on)
 import           Data.List           (nubBy, stripPrefix)
 import           Data.Maybe          (catMaybes)
-import           Language.Haskell.TH (Name, Pred, Q, TyVarBndr (PlainTV),
-                                      Type (ForallT), TypeQ, appT, conT, equalP,
+import           Language.Haskell.TH (Name, Q, TyVarBndr (PlainTV),
+                                      Type (ForallT, AppT), TypeQ, appT, conT, equalityT,
                                       forallT, mkName, nameBase, promotedConsT,
                                       promotedNilT, promotedT, promotedTupleT,
                                       runIO, varT)
@@ -23,18 +19,18 @@ type Precondition = TypeQ
 -- Adds and preserves properties based on quickcheck functions and preconditions
 -- Generates predicate like:
 -- props' ~ Postconditions props '['(Ascending, '[]), '(NonNull, '[NonNull])]
-checkPost :: FilePath -> Name -> Name -> Name -> Q Pred
+checkPost :: FilePath -> Name -> Name -> Name -> TypeQ
 checkPost fp fn pres posts = pred =<< raise' . propSets .
                               findPropLines <$> runIO (readFile fp) where
   findPropLines = catMaybes . fmap (stripPrefix ("prop_" ++ nameBase fn ++ "_")) . lines
   propSets :: [String] -> [(Postcondition, [Precondition])]
-  propSets = catMaybes . fmap (\(a, b) -> fmap ((promotedT . mkName $ a,)
-                                                . precondify) $ extract b) .
+  propSets = catMaybes . fmap (\(a, b) -> ((promotedT . mkName $ a,)
+                                           . precondify) <$> extract b) .
              nubBy ((==) `on` fst) . fmap (break (== ' ')) where
-    extract = fstMatch . (=~ "'\\[(.*?)\\]") where
+    extract = fstMatch . (=~ "'\\[ *'?(.*?)\\]") where
       fstMatch :: (String, String, String, [String]) -> Maybe String
       fstMatch (_, _, _, x:_) = Just x
-      fstMatch x = Nothing
+      fstMatch _ = Nothing
     precondify :: String -> [Precondition]
     precondify "" = []
     precondify xs = fmap (promotedT . mkName) . splitOn "," $ xs
@@ -42,6 +38,13 @@ checkPost fp fn pres posts = pred =<< raise' . propSets .
   raise' = raise . fmap (\(post', pres') -> tuple post' (raise pres')) where
     tuple = appT . appT (promotedTupleT 2)
   pred = equalP (varT posts) . appT (appT (conT $ mkName "Postconditions") (varT pres))
+
+equalP :: TypeQ -> TypeQ -> TypeQ
+equalP qLeft qRight = do
+  left <- qLeft
+  right <- qRight
+  eqT <- equalityT
+  return (foldl AppT eqT [left, right])
 
 addPost :: Name -> TypeQ -> TypeQ
 addPost fn t = do
