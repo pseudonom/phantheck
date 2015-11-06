@@ -2,9 +2,6 @@ name:                phantheck
 version:             0.1.0.0
 synopsis:            Integrate quickchecked properties into the type system with phantom types
 
--- A longer description of the package.
--- description:         
-
 license:             GPL-3
 license-file:        LICENSE
 author:              pseudonom
@@ -12,13 +9,24 @@ maintainer:          escalier@riseup.net
 category:            Language
 build-type:          Simple
 
--- Extra files to be distributed with the package, such as examples or a 
--- README.
--- extra-source-files:  
-
 cabal-version:       >=1.10
 executable phantheck
   main-is: Demo.hs
-  other-extensions:    DataKinds, FlexibleInstances, TemplateHaskell, TypeFamilies, ConstraintKinds, PolyKinds, TypeOperators, UndecidableInstances
-  build-depends:       base >=4.7 && <4.8, QuickCheck >=2.6 && <2.7, split >=0.2 && <0.3, template-haskell >=2.9 && <2.10, regex-pcre >= 0.94 && <0.95
+  other-modules:       Template
+                       Type
+  default-extensions:  DataKinds,
+                       FlexibleInstances,
+                       TemplateHaskell,
+                       TypeFamilies,
+                       ConstraintKinds,
+                       PolyKinds,
+                       TypeOperators,
+                       UndecidableInstances,
+                       RankNTypes,
+                       TupleSections
+  build-depends:       base,
+                       QuickCheck,
+                       split,
+                       template-haskell,
+                       regex-pcre
   default-language:    Haskell2010
