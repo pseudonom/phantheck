@@ -28,7 +28,7 @@ minimum = head
 
 -- `sort` has no preconditions,
 -- `addPost` will add the `Ascending` property due to `prop_sort_Ascending`
-sort :: $(addPost 'sort [t| forall pres posts.
+sort :: $(addPost [t| forall pres posts.
            Propertized pres [Int] -> Propertized posts [Int]
          |])
 sort = Propertize . L.sort . getPropertized

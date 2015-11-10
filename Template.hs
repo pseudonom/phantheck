@@ -4,7 +4,6 @@ import           Data.Function
 import           Data.List
 import           Data.Maybe
 import           Language.Haskell.TH
-import           Prelude             hiding (pred)
 
 import           Data.List.Split     (splitOn)
 import           Safe                (atMay)
@@ -36,11 +35,14 @@ checkPost fp fn presName postsName =
         preType = typesToList . map stringToType
     mkPredicate reqsAndPosts = runQ [t| $(varT postsName) ~ Postconditions $(varT presName) $(reqsAndPosts) |]
 
-addPost :: Name -> TypeQ -> TypeQ
-addPost fn t = do
+addPost :: TypeQ -> TypeQ
+addPost t = do
+  fnLineNum <- pred . fst <$> loc_start <$> location
+  fnLine <- (!! fnLineNum) . lines <$> runIO (readFile "Demo.hs")
+  let fnName = mkName . fst . break (== ' ') $ fnLine
   (ForallT [PlainTV props, PlainTV props'] _ t') <- t
   forallT [PlainTV props, PlainTV props']
-    (sequence [checkPost "Demo.hs" fn props props']) (return t')
+    (sequence [checkPost "Demo.hs" fnName props props']) (return t')
 
 stringToType :: String -> TypeQ
 stringToType = promotedT . mkName
