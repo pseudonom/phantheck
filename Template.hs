@@ -35,7 +35,7 @@ checkPost fp fn pres posts = pred =<< raise' . propSets .
     precondify "" = []
     precondify xs = fmap (promotedT . mkName) . splitOn "," $ xs
   raise' :: [(Postcondition, [Precondition])] -> TypeQ
-  raise' = raise . fmap (\(post', pres') -> tuple post' (raise pres')) where
+  raise' = raise . fmap (\(post', pres') -> tuple (raise pres') post') where
     tuple = appT . appT (promotedTupleT 2)
   pred = equalP (varT posts) . appT (appT (conT $ mkName "Postconditions") (varT pres))
 
