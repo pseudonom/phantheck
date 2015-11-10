@@ -27,9 +27,9 @@ minimum :: (Precondition 'Ascending props,
 minimum = head
 
 -- `sort` has no preconditions,
--- `addPost` will add the `Ascending' property due to `prop_sort_Ascending`
-sort :: $(addPost 'sort [t| forall props props'. props' =>
-           Propertized props [Int] -> Propertized props' [Int]
+-- `addPost` will add the `Ascending` property due to `prop_sort_Ascending`
+sort :: $(addPost 'sort [t| forall pres posts.
+           Propertized pres [Int] -> Propertized posts [Int]
          |])
 sort = Propertize . L.sort . getPropertized
 

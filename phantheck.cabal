@@ -23,10 +23,12 @@ executable phantheck
                        TypeOperators,
                        UndecidableInstances,
                        RankNTypes,
-                       TupleSections
+                       TupleSections,
+                       FlexibleContexts
   build-depends:       base,
                        QuickCheck,
                        split,
                        template-haskell,
-                       regex-pcre
+                       regex-pcre,
+                       safe
   default-language:    Haskell2010

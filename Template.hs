@@ -1,50 +1,40 @@
 module Template where
 
-import           Data.Function       (on)
-import           Data.List           (nubBy, stripPrefix)
-import           Data.Maybe          (catMaybes)
-import           Language.Haskell.TH (Name, Q, TyVarBndr (PlainTV),
-                                      Type (ForallT, AppT), TypeQ, appT, conT, equalityT,
-                                      forallT, mkName, nameBase, promotedConsT,
-                                      promotedNilT, promotedT, promotedTupleT,
-                                      runIO, varT)
+import           Data.Function
+import           Data.List
+import           Data.Maybe
+import           Language.Haskell.TH
 import           Prelude             hiding (pred)
 
 import           Data.List.Split     (splitOn)
-import           Text.Regex.PCRE     ((=~))
+import           Safe                (atMay)
+import           Text.Regex.PCRE
 
-type Postcondition = TypeQ
-type Precondition = TypeQ
+import           Type                (Postconditions)
+
+type Postcondition = String
+type Preconditions = [String]
 
 -- Adds and preserves properties based on quickcheck functions and preconditions
 -- Generates predicate like:
--- props' ~ Postconditions props '['(Ascending, '[]), '(NonNull, '[NonNull])]
+-- `posts ~ Postconditions pres '['(Ascending, '[]), '(NonNull, '[NonNull])]`
 checkPost :: FilePath -> Name -> Name -> Name -> TypeQ
-checkPost fp fn pres posts = pred =<< raise' . propSets .
-                              findPropLines <$> runIO (readFile fp) where
-  findPropLines = catMaybes . fmap (stripPrefix ("prop_" ++ nameBase fn ++ "_")) . lines
-  propSets :: [String] -> [(Postcondition, [Precondition])]
-  propSets = catMaybes . fmap (\(a, b) -> ((promotedT . mkName $ a,)
-                                           . precondify) <$> extract b) .
-             nubBy ((==) `on` fst) . fmap (break (== ' ')) where
-    extract = fstMatch . (=~ "'\\[ *'?(.*?)\\]") where
-      fstMatch :: (String, String, String, [String]) -> Maybe String
-      fstMatch (_, _, _, x:_) = Just x
-      fstMatch _ = Nothing
-    precondify :: String -> [Precondition]
-    precondify "" = []
-    precondify xs = fmap (promotedT . mkName) . splitOn "," $ xs
-  raise' :: [(Postcondition, [Precondition])] -> TypeQ
-  raise' = raise . fmap (\(post', pres') -> tuple (raise pres') post') where
-    tuple = appT . appT (promotedTupleT 2)
-  pred = equalP (varT posts) . appT (appT (conT $ mkName "Postconditions") (varT pres))
-
-equalP :: TypeQ -> TypeQ -> TypeQ
-equalP qLeft qRight = do
-  left <- qLeft
-  right <- qRight
-  eqT <- equalityT
-  return (foldl AppT eqT [left, right])
+checkPost fp fn presName postsName =
+  mkPredicate . reqsAndPostsToType . mkReqsAndPosts . findPropLines =<< runIO (readFile fp)
+  where
+    findPropLines = catMaybes . map (stripPrefix ("prop_" ++ nameBase fn ++ "_")) . lines
+    mkReqsAndPosts :: [String] -> [(Preconditions, Postcondition)]
+    mkReqsAndPosts = catMaybes . map (parse . break (== ' '))
+      where
+        parse (post, pres) = (,post) . precondify <$> extractProps pres
+          where
+            extractProps = (`atMay` 1) . getAllTextSubmatches . (=~ "'\\[ *'?(.*?)\\]")
+            precondify "" = []
+            precondify xs = splitOn "," $ xs
+    reqsAndPostsToType = typesToList . map (\(pres, post) -> [t| '($(preType pres), $(stringToType post)) |])
+      where
+        preType = typesToList . map stringToType
+    mkPredicate reqsAndPosts = runQ [t| $(varT postsName) ~ Postconditions $(varT presName) $(reqsAndPosts) |]
 
 addPost :: Name -> TypeQ -> TypeQ
 addPost fn t = do
@@ -52,6 +42,9 @@ addPost fn t = do
   forallT [PlainTV props, PlainTV props']
     (sequence [checkPost "Demo.hs" fn props props']) (return t')
 
-type TypeList = Type
-raise :: [TypeQ] -> Q TypeList
-raise = foldr (appT . appT promotedConsT) promotedNilT
+stringToType :: String -> TypeQ
+stringToType = promotedT . mkName
+
+-- Promotes a list of types into a type level list
+typesToList :: [TypeQ] -> TypeQ
+typesToList = foldr (appT . appT promotedConsT) promotedNilT
