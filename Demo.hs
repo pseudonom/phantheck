@@ -6,42 +6,43 @@ import qualified Data.List           as L
 import           Test.QuickCheck     (Arbitrary (arbitrary), getNonEmpty, quickCheck)
 
 import           Template            (addPost)
-import           Type                (Postconditions, Precondition)
+import           Type                (Precondition)
 
 data Property = Ascending | NonNull
 
 -- A phantom type wrapper which allows us to add properties to another type
-newtype Propertized (props :: [Property]) a  =
-  Propertize { getPropertized :: a } deriving Show
+newtype Prop (props :: [Property]) a  = Prop { unProp :: a } deriving Show
 
 
 -- `head` will only operate on lists which have the `NonNull` property
-head :: (Precondition 'NonNull props) =>
-         Propertized props [a] -> a
-head = L.head . getPropertized
+head :: (Precondition 'NonNull props) => Prop props [a] -> a
+head = L.head . unProp
 
 -- minimum will only operate on lists which have the `NonNull` and `Ascending` properties
-minimum :: (Precondition 'Ascending props,
-             Precondition 'NonNull props) =>
-            Propertized props [Int] -> Int
+minimum :: (Precondition 'Ascending props, Precondition 'NonNull props) => Prop props [Int] -> Int
 minimum = head
 
 -- `sort` has no preconditions,
 -- `addPost` will add the `Ascending` property due to `prop_sort_Ascending`
 sort :: $(addPost [t| forall pres posts.
-           Propertized pres [Int] -> Propertized posts [Int]
-         |])
-sort = Propertize . L.sort . getPropertized
+          Prop pres [Int] -> Prop posts [Int]
+        |])
+sort = Prop . L.sort . unProp
 
 
 -- A `NonNull` and unsorted list
-unsorted :: Propertized '[ 'NonNull] [Int]
-unsorted = Propertize [2, 3, 1]
+unsorted :: Prop '[ 'NonNull] [Int]
+unsorted = Prop [2, 3, 1]
 
 -- Typechecks because `sort` adds `Ascending` to unsorted before passing it on to `minimum`
 foo :: Int
 foo = minimum . sort $ unsorted
 
+empty :: Prop '[] [Int]
+empty = Prop []
+
+baz :: Prop '[ 'Ascending] [Int]
+baz = sort empty
 
 -- Fails to typecheck because `unsorted` does not have the `Ascending` property that `minimum` requires
 {- The error is as follows:
@@ -56,10 +57,10 @@ In an equation for ‛bar’: bar = minimum unsorted
 -- bar = minimum unsorted
 
 
-instance Arbitrary (Propertized '[] [Int]) where
-  arbitrary = Propertize <$> arbitrary
-instance Arbitrary (Propertized '[ 'NonNull] [Int]) where
-  arbitrary = Propertize . getNonEmpty <$> arbitrary
+instance Arbitrary (Prop '[] [Int]) where
+  arbitrary = Prop <$> arbitrary
+instance Arbitrary (Prop '[ 'NonNull] [Int]) where
+  arbitrary = Prop . getNonEmpty <$> arbitrary
 
 -- Property verifiers must follow the naming convention `prop_fnName_PropName`.
 -- `PropName` specifies the postcondition that the function checks.
@@ -79,15 +80,15 @@ In the expression: minimum . sort $ unsorted
 -}
 
 -- Sorting adds `Ascending`
-prop_sort_Ascending :: Propertized '[] [Int] -> Bool
-prop_sort_Ascending (Propertize []) = True
-prop_sort_Ascending xs = 
+prop_sort_Ascending :: Prop '[] [Int] -> Bool
+prop_sort_Ascending (Prop []) = True
+prop_sort_Ascending xs =
   and $ zipWith (<=) xs' (tail xs') where
-    xs' = getPropertized . sort $ xs
+    xs' = unProp . sort $ xs
 
 -- Sorting preserves `NonNull`
-prop_sort_NonNull :: Propertized '[ 'NonNull] [Int] -> Bool
-prop_sort_NonNull = not . null . getPropertized . sort
+prop_sort_NonNull :: Prop '[ 'NonNull] [Int] -> Bool
+prop_sort_NonNull = not . null . unProp . sort
 
 
 main :: IO ()
