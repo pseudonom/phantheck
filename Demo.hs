@@ -3,9 +3,9 @@ module Main where
 import           Prelude             hiding (head, minimum)
 import qualified Data.List           as L
 
-import           Test.QuickCheck     (Arbitrary (arbitrary), getNonEmpty, quickCheck)
+import           Test.QuickCheck     hiding (Property)
 
-import           Template            (addPost)
+import           Template            (addPost, quickCheckWithName)
 import           Type                (Precondition)
 
 data Property = Ascending | NonNull
@@ -93,5 +93,5 @@ prop_sort_NonNull = not . null . unProp . sort
 
 main :: IO ()
 main = do
-  quickCheck prop_sort_Ascending
-  quickCheck prop_sort_NonNull
+  $(quickCheckWithName [|prop_sort_Ascending|])
+  $(quickCheckWithName [|prop_sort_NonNull|])
