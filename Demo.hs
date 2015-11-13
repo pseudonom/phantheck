@@ -23,28 +23,27 @@ minimum :: (Precondition 'Ascending props, Precondition 'NonNull props) => Prop 
 minimum = head
 
 -- `sort` has no preconditions,
--- `addPost` will add the `Ascending` property due to `prop_sort_Ascending`
+-- `addPost` will add the `Ascending` postcondition due to `prop_sort_Ascending`
 sort :: $(addPost [t| forall pres posts.
           Prop pres [Int] -> Prop posts [Int]
         |])
 sort = Prop . L.sort . unProp
-
 
 -- A `NonNull` and unsorted list
 unsorted :: Prop '[ 'NonNull] [Int]
 unsorted = Prop [2, 3, 1]
 
 -- Typechecks because `sort` adds `Ascending` to unsorted before passing it on to `minimum`
-foo :: Int
-foo = minimum . sort $ unsorted
+min :: Int
+min = minimum . sort $ unsorted
 
 empty :: Prop '[] [Int]
 empty = Prop []
 
-baz :: Prop '[ 'Ascending] [Int]
-baz = sort empty
+sortedEmpty :: Prop '[ 'Ascending] [Int]
+sortedEmpty = sort empty
 
--- Fails to typecheck because `unsorted` does not have the `Ascending` property that `minimum` requires
+-- The following fails to typecheck because `unsorted` does not have the `Ascending` property that `minimum` requires
 {- The error is as follows:
 
 Couldn't match type ‛'False’ with ‛'True’
@@ -56,6 +55,12 @@ In an equation for ‛bar’: bar = minimum unsorted
 -- bar :: Int
 -- bar = minimum unsorted
 
+-- If we define `sort` as follows, our program will fail to compile during the `strict` phase.
+-- This is because our `Ascending` test will fail and so `sort` won't add the `Ascending` property `minimum` requires.
+-- sort :: $(addPost [t| forall pres posts.
+--           Prop pres [Int] -> Prop posts [Int]
+--         |])
+-- sort = Prop . id . unProp
 
 instance Arbitrary (Prop '[] [Int]) where
   arbitrary = Prop <$> arbitrary
@@ -69,7 +74,7 @@ instance Arbitrary (Prop '[ 'NonNull] [Int]) where
 
 {-
 If `prop_sort_Ascending` is commented, the following error is thrown
-during compilation, as hoped:
+during the non-strict phase of compilation, as hoped:
 
 Couldn't match type ‛'False’ with ‛'True’
 Expected type: 'True
