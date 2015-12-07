@@ -15,7 +15,7 @@ Currently, things are very much hard-coded and proof-of-concept. To play with th
 
 ```sh
 STRICT=False stack build && stack clean && STRICT=True stack build
-```.
+```
 
 As you can see `phantheck` does two phases of compilation. In the first phase, it only checks for the existence of property tests and assumes they pass. In the second phase, it runs the tests compiled in the first phase and verifies that they actually succeed.
 
