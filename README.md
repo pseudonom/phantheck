@@ -8,6 +8,8 @@ What
 
 Phantheck allows you to annotate functions with preconditions and postconditions. Conditions are specified with phantom type-level lists. Applying a function to a parameter which does not satisfy the preconditions will cause a compile-time error. Postconditions are not specified by assertion but by splicing in QuickChecked properties. `Demo.hs` may make things clearer.
 
+You can also watch a [presentation about Phantheck](http://begriffs.com/posts/2015-12-06-quickcheck-for-types.html).
+
 How to use
 ----------
 
