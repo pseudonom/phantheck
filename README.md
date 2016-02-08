@@ -25,6 +25,7 @@ As you can see `phantheck` does two phases of compilation. In the first phase, i
 
 TODO
 ----
+- Rewrite as typechecker plugin
 
 - Lots of clean-up and less hard-coding
 
