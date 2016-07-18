@@ -1,25 +1,29 @@
+{-# OPTIONS_GHC -fplugin Plugin #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE PolyKinds #-}
+
 module Main where
 
 import           Prelude             hiding (head, minimum)
 import qualified Data.List           as L
+import           GHC.TypeLits
 
 import           Test.QuickCheck     hiding (Property)
 
+import           Plugin
 import           Template            (addPost, quickCheckWithName)
 import           Type                (Precondition)
 
-data Property = Ascending | NonNull
-
 -- A phantom type wrapper which allows us to add properties to another type
-newtype Prop (props :: [Property]) a  = Prop { unProp :: a } deriving Show
+newtype Prop (props :: [k]) a  = Prop { unProp :: a } deriving (Show)
 
 
 -- `head` will only operate on lists which have the `NonNull` property
-head :: (Precondition 'NonNull props) => Prop props [a] -> a
+head :: (Precondition "NonNull" props) => Prop props [a] -> a
 head = L.head . unProp
 
 -- minimum will only operate on lists which have the `NonNull` and `Ascending` properties
-minimum :: (Precondition 'Ascending props, Precondition 'NonNull props) => Prop props [Int] -> Int
+minimum :: (Precondition "Ascending" props, Precondition "NonNull" props) => Prop props [Int] -> Int
 minimum = head
 
 -- `sort` has no preconditions,
@@ -29,19 +33,22 @@ sort :: $(addPost [t| forall pres posts.
         |])
 sort = Prop . L.sort . unProp
 
+sort' :: Prop pres [Int] -> Prop (FazzleDazzle "sort'" pres) [Int]
+sort' = Prop . L.sort . unProp
+
 -- A `NonNull` and unsorted list
-unsorted :: Prop '[ 'NonNull] [Int]
+unsorted :: Prop '["NonNull"] [Int]
 unsorted = Prop [2, 3, 1]
 
 -- Typechecks because `sort` adds `Ascending` to unsorted before passing it on to `minimum`
 min :: Int
-min = minimum . sort $ unsorted
+min = minimum . sort' $ unsorted
 
 empty :: Prop '[] [Int]
 empty = Prop []
 
-sortedEmpty :: Prop '[ 'Ascending] [Int]
-sortedEmpty = sort empty
+sortedEmpty :: Prop '["Ascending"] [Int]
+sortedEmpty = sort' empty
 
 -- The following fails to typecheck because `unsorted` does not have the `Ascending` property that `minimum` requires
 {- The error is as follows:
@@ -64,7 +71,7 @@ In an equation for ‛bar’: bar = minimum unsorted
 
 instance Arbitrary (Prop '[] [Int]) where
   arbitrary = Prop <$> arbitrary
-instance Arbitrary (Prop '[ 'NonNull] [Int]) where
+instance Arbitrary (Prop '["NonNull"] [Int]) where
   arbitrary = Prop . getNonEmpty <$> arbitrary
 
 -- Property verifiers must follow the naming convention `prop_fnName_PropName`.
@@ -85,14 +92,14 @@ In the expression: minimum . sort $ unsorted
 -}
 
 -- Sorting adds `Ascending`
-prop_sort_Ascending :: Prop '[] [Int] -> Bool
+prop_sort_Ascending :: Prop ('[] :: [Symbol]) [Int] -> Bool
 prop_sort_Ascending (Prop []) = True
 prop_sort_Ascending xs =
   and $ zipWith (<=) xs' (tail xs') where
     xs' = unProp . sort $ xs
 
 -- Sorting preserves `NonNull`
-prop_sort_NonNull :: Prop '[ 'NonNull] [Int] -> Bool
+prop_sort_NonNull :: Prop '[ "NonNull"] [Int] -> Bool
 prop_sort_NonNull = not . null . unProp . sort
 
 

@@ -37,9 +37,9 @@ checkPost presName postsName = mkPredicate . reqsAndPostsToType
 
 addPost :: TypeQ -> TypeQ
 addPost t = do
-  fnLineNum <- pred . fst <$> loc_start <$> location
+  fnLineNum <- pred . fst . loc_start <$> location
   fnLine <- (!! fnLineNum) . lines <$> runIO (readFile "Demo.hs")
-  let fnName = fst . break (== ' ') $ fnLine
+  let fnName = takeWhile (/= ' ') fnLine
   tests <- getWrittenTests
   passingTests <- do
     beStrict <- runIO $ read <$> getEnv "STRICT"
@@ -59,7 +59,7 @@ mkPropName :: FunctionName -> Postcondition -> PropName
 mkPropName fnName post = "prop_" <> fnName <> "_" <> post
 
 stringToType :: String -> TypeQ
-stringToType = promotedT . mkName
+stringToType = pure . LitT . StrTyLit
 
 -- Promotes a list of types into a type level list
 typesToList :: [TypeQ] -> TypeQ
@@ -73,7 +73,7 @@ quickCheckWithName expQ = do
 
 getWrittenTests :: Q (Map FunctionName [(Preconditions, Postcondition)])
 getWrittenTests =
-  M.fromListWith (<>) . catMaybes . map (parse <=< stripPrefix "prop_") . lines  <$> runIO (readFile "Demo.hs")
+  M.fromListWith (<>) . mapMaybe (parse <=< stripPrefix "prop_") . lines  <$> runIO (readFile "Demo.hs")
   where
     parse line = (fnName,) . pure . (, post) <$> pres
       where
@@ -87,7 +87,8 @@ getWrittenTests =
 runTests :: Q (Set PropName)
 runTests = do
   (_, testOutput, _) <- runIO $ readProcessWithExitCode "stack" ["exec", "phantheck"] ""
-  return . S.fromList . catMaybes . map parseTests . chunksOf 2 $ lines testOutput
+  runIO $ print testOutput
+  return . S.fromList . mapMaybe parseTests . chunksOf 2 $ lines testOutput
   where
     parseTests [propName, "+++ OK, passed 100 tests."] = Just propName
     parseTests _ = Nothing
