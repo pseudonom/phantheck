@@ -6,20 +6,43 @@ module Plugin where
 -- external
 import Control.Arrow       ((***))
 import Control.Monad       ((<=<))
+import Control.Monad.IO.Class
+import Data.Dynamic hiding (TyCon, mkTyConApp)
 import Data.List           (partition)
 import Data.Maybe          (mapMaybe, fromMaybe)
 import Data.Monoid         ((<>))
-import GHC.TcPluginM.Extra (evByFiat, lookupModule, lookupName)
+import GHC
+import GHC.Paths
+import GHC.TcPluginM.Extra (evByFiat, tracePlugin)
 import GHC.TypeLits        (Symbol)
+import System.Environment
+
+import Annotations
+import ApiAnnotation 
+import DynFlags      
+import FastString    
+import HeaderInfo    
+import Lexer         
+import Module
+import MonadUtils    
+import OccName
+import Packages
+import Parser        
+import Serialized
+import SrcLoc        
+import StringBuffer  
+import Var
+-- import Language.Haskell.Interpreter
 
 -- GHC API
 import FastString (fsLit)
+import GHC        ()
 import Module     (mkModuleName)
 import OccName    (mkTcOcc)
 import Outputable (showSDocUnsafe, ppr)
-import Plugins    (Plugin (..), defaultPlugin)
+import Plugins    (Plugin (..), defaultPlugin, CommandLineOption)
 import TcEvidence (EvTerm)
-import TcPluginM  (TcPluginM, tcLookupTyCon, tcPluginIO)
+import TcPluginM  (TcPluginM, tcLookupTyCon, tcPluginIO, lookupOrig, findImportedModule, FindResult(..))
 import TcRnTypes  (Ct(..), TcPlugin(..), TcPluginResult (..), CtEvidence(..),
                    ctEvidence, ctEvPred)
 import TcType     (TcPredType)
@@ -34,12 +57,12 @@ import TypeRep    (Type (..), TyLit (..))
 type family FazzleDazzle (fn :: Symbol) (a :: [k]) :: [k]
 
 plugin :: Plugin
-plugin = defaultPlugin { tcPlugin = \_ -> Just phantheckPlugin }
+plugin = defaultPlugin { tcPlugin = Just . phantheckPlugin }
 
-phantheckPlugin :: TcPlugin
-phantheckPlugin
-  = TcPlugin
-  { tcPluginInit  = lookupPost
+phantheckPlugin :: [CommandLineOption] -> TcPlugin
+phantheckPlugin options =
+  tracePlugin "phantheck" TcPlugin
+  { tcPluginInit  = lookupPost options
   , tcPluginSolve = printStuff
   , tcPluginStop  = \_ -> return ()
   }
@@ -111,8 +134,62 @@ evMagic ct =
     EqPred NomEq t1 t2 -> Just (evByFiat "foo" t1 t2)
     _ -> Nothing
 
-lookupPost :: TcPluginM TyCon
-lookupPost = do
-  md <- lookupModule (mkModuleName "Plugin") (fsLit "phantheck")
-  gcdTcNm <- lookupName md (mkTcOcc "FazzleDazzle")
-  tcLookupTyCon gcdTcNm
+
+lookupPost :: [CommandLineOption] -> TcPluginM TyCon
+lookupPost _ = do
+  tcPluginIO . defaultErrorHandler defaultFatalMessager defaultFlushOut . runGhcT (Just GHC.Paths.libdir) $ do
+    let
+    flags <- getSessionDynFlags
+    let
+      flags' =
+        flags
+          { hscTarget = HscInterpreted
+          , ghcLink = LinkInMemory
+          , extraPkgConfs = (stackDB :) . extraPkgConfs flags
+          }
+    setSessionDynFlags flags'
+    liftIO $ initPackages flags'
+    target <- guessTarget "Foo" Nothing
+    addTarget target
+    flag <- load LoadAllTargets
+    mod <- findModule (mkModuleName "Foo") Nothing
+    Just modInfo <- getModuleInfo mod
+    let
+      [exportNm] = modInfoExports modInfo
+    Just (AnId export) <- lookupName exportNm
+    liftIO . putStrLn . showSDocUnsafe . ppr $ varType export
+    setContext [IIModule $ moduleName mod]
+    Just st <- fromDynamic <$> dynCompileExpr (occNameString . getOccName $ exportNm)
+    liftIO $ putStrLn st
+    [ann] <- findGlobalAnns deserializeWithData (NamedTarget exportNm)
+    liftIO . putStrLn $ fst ann
+    liftIO . print $ (snd ann :: Int)
+    undefined
+
+stackDB = PkgConfFile "/home/eric/.stack/snapshots/x86_64-linux-nix/lts-5.9/7.10.3/pkgdb"
+
+-- lookupPost :: [CommandLineOption] -> TcPluginM TyCon
+-- lookupPost [option] = do
+--   let plugin = mkModuleName "Main"
+--   md <- lookupModule plugin (fsLit "phantheck")
+--   tcPluginIO . defaultErrorHandler defaultFatalMessager defaultFlushOut $
+--     runGhcT (Just GHC.Paths.libdir) $ do
+--       flags <- getSessionDynFlags
+--       let flags' =
+--             flags
+--               { hscTarget = HscInterpreted
+--               , ghcLink = LinkInMemory
+--               , packageFlags = ExposePackage (PackageArg "ghc-7.10.3") (ModRenaming False []) : packageFlags flags
+--               }
+--       liftIO $ print . map packageKeyString . snd =<< initPackages flags'
+--       liftIO $ print "foo"
+--       target <- guessTarget "Demo.hs" Nothing
+--       setTargets [target]
+--       -- setContext [ IIDecl . simpleImportDecl . mkModuleName $ "Data.List" ]
+--       liftIO $ print "baz"
+--       flag <- load LoadAllTargets
+--       -- liftIO . putStrLn . showSDocUnsafe . ppr $ flag
+--       liftIO $ print "bar"
+--       -- getModuleInfo md
+--   gcdTcNm <- lookupName md (mkTcOcc "FazzleDazzle")
+--   tcLookupTyCon gcdTcNm

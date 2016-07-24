@@ -35,5 +35,9 @@ executable phantheck
                        process,
                        containers,
                        ghc >= 7.10.1,
-                       ghc-tcplugins-extra >= 0.2
+                       ghc-tcplugins-extra >= 0.2,
+                       ghc-paths,
+                       mtl,
+                       transformers,
+                       hint
   default-language:    Haskell2010

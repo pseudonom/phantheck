@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fplugin Plugin #-}
+{-# OPTIONS_GHC -fplugin Plugin -fplugin-opt=Plugin:Main #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE PolyKinds #-}
 
