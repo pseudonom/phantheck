@@ -44,7 +44,6 @@ phantheckPlugin options =
 
 printStuff :: () -> [Ct] -> [Ct] -> [Ct] -> TcPluginM TcPluginResult
 printStuff () _ _ wanted = do
-  let
   tcPluginIO $ putStrLn $ "Wanted: " <> showSDocUnsafe (ppr wanted)
   pure (TcPluginOk [] [])
 
@@ -63,7 +62,7 @@ lookupPost _ = do
               , ghcLink = LinkInMemory
               , extraPkgConfs = (projDB :) . (stackDB :) . extraPkgConfs flags
               }
-        setSessionDynFlags flags'
+        setSessionDynFlags $ xopt_set flags' Opt_DataKinds
         liftIO $ initPackages flags'
         lib <- guessTarget "src/Lib.hs" Nothing
         test <- guessTarget "test/Spec.hs" Nothing

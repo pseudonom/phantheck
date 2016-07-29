@@ -18,15 +18,19 @@ library
   default-language:    Haskell2010
   ghc-options:         -Wall
   hs-source-dirs:      src
-  exposed-modules:     GHC.Type.Test.Plugin
+  exposed-modules:     GHC.Type.Test
+                     , GHC.Type.Test.Plugin
   build-depends:       base >= 4.7 && < 5
                      , ghc
                      , ghc-paths
                      , ghc-tcplugins-extra
                      , transformers
-  default-extensions:  ExistentialQuantification
+  default-extensions:  DataKinds
+                       ExistentialQuantification
                        LambdaCase
+                       PolyKinds
                        TupleSections
+                       TypeFamilies
 
 source-repository head
   type:     git
