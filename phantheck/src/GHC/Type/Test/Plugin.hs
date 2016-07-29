@@ -7,6 +7,7 @@ module GHC.Type.Test.Plugin (plugin) where
 import Control.Monad       ((<=<))
 import Control.Monad.IO.Class
 import Data.Dynamic hiding (TyCon, mkTyConApp)
+import qualified Data.List as List
 import Data.Maybe          (mapMaybe, fromMaybe)
 import Data.Monoid         ((<>))
 import GHC
@@ -16,6 +17,7 @@ import System.Environment
 
 import Annotations
 import DynFlags
+import FastString
 import OccName
 import Packages
 import Serialized
@@ -42,12 +44,12 @@ phantheckPlugin options =
     , tcPluginStop  = \_ -> return ()
     }
 
-printStuff :: () -> [Ct] -> [Ct] -> [Ct] -> TcPluginM TcPluginResult
-printStuff () _ _ wanted = do
+printStuff :: TyCon -> [Ct] -> [Ct] -> [Ct] -> TcPluginM TcPluginResult
+printStuff _ _ _ wanted = do
   tcPluginIO $ putStrLn $ "Wanted: " <> showSDocUnsafe (ppr wanted)
   pure (TcPluginOk [] [])
 
-lookupPost :: [CommandLineOption] -> TcPluginM ()
+lookupPost :: [CommandLineOption] -> TcPluginM TyCon
 lookupPost _ = do
   tcPluginIO . defaultErrorHandler defaultFatalMessager defaultFlushOut . runGhcT (Just GHC.Paths.libdir) $
     liftIO (lookupEnv "HAPPENING") >>= \case
@@ -62,7 +64,7 @@ lookupPost _ = do
               , ghcLink = LinkInMemory
               , extraPkgConfs = (projDB :) . (stackDB :) . extraPkgConfs flags
               }
-        setSessionDynFlags $ xopt_set flags' Opt_DataKinds
+        setSessionDynFlags $ List.foldl' xopt_set flags' [Opt_DataKinds, Opt_PolyKinds]
         liftIO $ initPackages flags'
         lib <- guessTarget "src/Lib.hs" Nothing
         test <- guessTarget "test/Spec.hs" Nothing
@@ -79,6 +81,14 @@ lookupPost _ = do
         Just st <- fromDynamic <$> dynCompileExpr (occNameString . getOccName $ exportNm) :: GhcT IO (Maybe String)
         anns <- findGlobalAnns deserializeWithData (NamedTarget exportNm) :: GhcT IO [(String, Int)]
         pure ()
+  fromMaybe (error "Could not find `phantheck` type constructor `Props`") <$> getPropsConstructor
+
+getPropsConstructor :: TcPluginM (Maybe TyCon)
+getPropsConstructor =
+  findImportedModule (mkModuleName "GHC.Type.Test") (Just $ fsLit "phantheck") >>=
+  \case
+    Found _ mod -> fmap Just . tcLookupTyCon =<< lookupOrig mod (mkTcOcc "Props")
+    _ -> pure Nothing
 
 stackDB = PkgConfFile "/home/eric/.stack/snapshots/x86_64-linux-nix/lts-5.9/7.10.3/pkgdb"
 projDB = PkgConfFile "/home/eric/code/phantheck/.stack-work/install/x86_64-linux-nix/lts-5.9/7.10.3/pkgdb"
