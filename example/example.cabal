@@ -35,6 +35,10 @@ test-suite spec
                      , hspec
                      , QuickCheck
                      , phantheck
+  default-extensions:  DataKinds
+                       FlexibleInstances
+                       PolyKinds
+                       ScopedTypeVariables
 
 source-repository head
   type:     git

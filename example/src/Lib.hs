@@ -7,13 +7,13 @@ import qualified Data.List as List
 
 import GHC.Type.Test
 
-min :: Props '["sorted", "non-empty"] [a] -> a
+min :: Props '["ascending", "non-empty"] [a] -> a
 min (Props xs) = head xs
 
-sort :: Props pre [Int] -> Props (AddProps "sort" pre) [Int]
+sort :: (Ord a) => Props pre [a] -> Props (AddProps "sort" pre) [a]
 sort (Props xs) = Props . List.sort $ xs
 
-sortedList :: Props '["sorted", "non-empty"] [Int]
+sortedList :: Props '["ascending", "non-empty"] [Int]
 sortedList = Props [1, 2, 3]
 
 unsortedList :: Props '["non-empty"] [Int]
@@ -22,5 +22,5 @@ unsortedList = Props [3, 2, 1]
 int1 :: Int
 int1 = min sortedList
 
-int2 :: Int
-int2 = min $ sort unsortedList
+-- int2 :: Int
+-- int2 = min $ sort unsortedList
