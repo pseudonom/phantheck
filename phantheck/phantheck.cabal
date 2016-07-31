@@ -24,11 +24,14 @@ library
                      , ghc
                      , ghc-paths
                      , ghc-tcplugins-extra
+                     , QuickCheck
+                     , tagged
                      , transformers
   default-extensions:  DataKinds
                        ExistentialQuantification
                        LambdaCase
                        PolyKinds
+                       RecordWildCards
                        TupleSections
                        TypeFamilies
 

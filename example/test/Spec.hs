@@ -10,15 +10,15 @@ import GHC.Type.Test
 import Lib
 
 {-# ANN sort__ascending ("sort", "ascending") #-}
-sort__ascending :: Ord a => Props '[] [a] -> Bool
-sort__ascending xs = ascending (sort xs)
+sort__ascending :: Props '[] [Int] -> Bool
+sort__ascending xs = not $ ascending (sort xs)
 
 {-# ANN sort_nonEmpty_ascending ("sort", "ascending") #-}
-sort_nonEmpty_ascending :: Ord a => Props '["non-empty"] [a] -> Bool
+sort_nonEmpty_ascending :: Props '["non-empty"] [Int] -> Bool
 sort_nonEmpty_ascending xs = ascending (sort xs)
 
 {-# ANN sort_nonEmpty_nonEmpty ("sort", "non-empty") #-}
-sort_nonEmpty_nonEmpty :: Ord a => Props '["non-empty"] [a] -> Bool
+sort_nonEmpty_nonEmpty :: Props '["non-empty"] [Int] -> Bool
 sort_nonEmpty_nonEmpty (Props xs) = not $ null xs
 
 ascending :: Ord a => Props ps [a] -> Bool
