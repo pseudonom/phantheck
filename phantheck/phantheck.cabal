@@ -27,13 +27,15 @@ library
                      , QuickCheck
                      , tagged
                      , transformers
-  default-extensions:  DataKinds
+  default-extensions:  ConstraintKinds
+                       DataKinds
                        ExistentialQuantification
                        LambdaCase
                        PolyKinds
                        RecordWildCards
                        TupleSections
                        TypeFamilies
+                       TypeOperators
 
 source-repository head
   type:     git

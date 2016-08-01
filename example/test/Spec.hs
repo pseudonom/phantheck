@@ -11,7 +11,7 @@ import Lib
 
 {-# ANN sort__ascending ("sort", "ascending") #-}
 sort__ascending :: Props '[] [Int] -> Bool
-sort__ascending xs = not $ ascending (sort xs)
+sort__ascending xs = ascending (sort xs)
 
 {-# ANN sort_nonEmpty_ascending ("sort", "ascending") #-}
 sort_nonEmpty_ascending :: Props '["non-empty"] [Int] -> Bool

@@ -4,7 +4,6 @@ module Lib where
 
 import Prelude hiding (min)
 import qualified Data.List as List
-import GHC.TypeLits
 
 import GHC.Type.Test
 
@@ -14,7 +13,7 @@ min (Props xs) = head xs
 sort :: (Ord a) => Props pre [a] -> Props (AddProps "sort" pre) [a]
 sort (Props xs) = Props . List.sort $ xs
 
-sortedList :: Props ('["non-empty", "ascending"] :: [Symbol]) [Int]
+sortedList :: Props '["non-empty", "ascending"] [Int]
 sortedList = Props [1, 2, 3]
 
 unsortedList :: Props '["non-empty"] [Int]
@@ -25,6 +24,3 @@ int1 = min sortedList
 
 int2 :: Int
 int2 = min $ sort unsortedList
-
--- a :: Int
--- a = 'c'

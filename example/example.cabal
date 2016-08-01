@@ -24,6 +24,8 @@ library
   default-extensions:  DataKinds
                        KindSignatures
                        PolyKinds
+                       TypeFamilies
+                       TypeOperators
 
 test-suite spec
   default-language:    Haskell2010
