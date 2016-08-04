@@ -167,18 +167,7 @@ setupPackages = do
         , ghcLink = LinkInMemory
         , extraPkgConfs = (projDb :) . (stackDb :) . extraPkgConfs flags
         }
-  _ <-
-    setSessionDynFlags $
-      List.foldl'
-        xopt_set flags'
-        [ Opt_DataKinds
-        , Opt_PolyKinds
-        , Opt_ScopedTypeVariables
-        , Opt_FlexibleInstances
-        , Opt_KindSignatures
-        , Opt_TypeOperators
-        , Opt_TypeFamilies
-        ]
+  _ <- setSessionDynFlags flags'
   liftIO $ initPackages flags'
 
 

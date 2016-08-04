@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# OPTIONS_GHC -fplugin GHC.Type.Test.Plugin #-}
 
 module Lib where
