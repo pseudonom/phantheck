@@ -2,8 +2,9 @@ module GHC.Type.Test.Plugin (plugin) where
 
 import Control.Arrow (second, (***))
 import Control.Monad ((<=<))
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (liftIO, MonadIO)
 import Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT)
+import Distribution.Helper
 import Data.Dynamic hiding (TyCon, mkTyConApp, splitTyConApp, tyConName, mkAppTy)
 import Data.Function (on)
 import qualified Data.List as List
@@ -11,7 +12,13 @@ import Data.Maybe (mapMaybe, fromMaybe, listToMaybe, catMaybes, isJust)
 import Data.Monoid ((<>))
 import Data.Tagged (Tagged(..))
 import GHC.Paths
+import Language.Haskell.GhcMod
+import Language.Haskell.GhcMod.Cradle
+import Language.Haskell.GhcMod.PathsAndFiles
+import Language.Haskell.GhcMod.Stack
+import System.Directory
 import System.Environment
+import System.FilePath
 import Test.QuickCheck
 
 import Annotations
@@ -20,6 +27,7 @@ import DynFlags
 import FastString
 import GHC hiding (Failed)
 import GHC.TcPluginM.Extra (evByFiat, tracePlugin)
+import HscTypes
 import Name
 import Outputable (showSDocUnsafe, ppr, Outputable)
 import Packages
@@ -27,7 +35,7 @@ import Plugins (Plugin (..), defaultPlugin, CommandLineOption)
 import Serialized
 import TcEvidence (EvTerm)
 import TcPluginM
-import TcRnTypes (Ct(..), TcPlugin(..), TcPluginResult(..), CtEvidence(..), ctEvidence, ctEvPred)
+import TcRnTypes (Ct(..), TcPlugin(..), TcPluginResult(..), CtEvidence(..), ctEvidence, ctEvPred, TcLclEnv(..))
 import TcType (TcPredType)
 import TyCon
 import Type
@@ -49,9 +57,9 @@ data Mode
   | Strict [(Test, Result)]
 
 phantheckPlugin :: [CommandLineOption] -> TcPlugin
-phantheckPlugin options =
+phantheckPlugin [testFile] =
   tracePlugin "phantheck" TcPlugin
-    { tcPluginInit = initialize options
+    { tcPluginInit = initialize testFile
     , tcPluginSolve = solve
     , tcPluginStop = \_ -> pure ()
     }
@@ -129,15 +137,16 @@ combineResults l r
   | l == r = Just l
   | otherwise = Nothing -- If we get a success and a failure, it's nonsensical
 
-initialize :: [CommandLineOption] -> TcPluginM (TyCons, Mode)
-initialize _ = do
+initialize :: FilePath -> TcPluginM (TyCons, Mode)
+initialize testFile = do
   tyCons <- fromJustNote <$> getPhantheckConstructors
   tcPluginIO (lookupEnv "PHANTHECK_IN_PROGRESS") >>= \case
-    Nothing ->
+    Nothing -> do
+      fileBeingChecked <- unpackFS . srcSpanFile . tcl_loc . snd <$> getEnvs
       tcPluginIO . defaultErrorHandler defaultFatalMessager defaultFlushOut . runGhcT (Just GHC.Paths.libdir) $ do
         liftIO $ setEnv "PHANTHECK_IN_PROGRESS" "TRUE"
-        _ <- setupPackages
-        testMod <- loadModules
+        _ <- setupPackages fileBeingChecked
+        testMod <- loadModules fileBeingChecked testFile
         Just modInfo <- getModuleInfo testMod
         setContext [IIModule $ moduleName testMod]
         testDb <- fmap catMaybes . mapM (testAndResult tyCons) $ modInfoExports modInfo
@@ -149,23 +158,24 @@ initialize _ = do
     fromJustNote = fromMaybe (error "Could not find @phantheck@ type constructors")
 
 -- | Load required modules and return test module
-loadModules :: GhcT IO Module
-loadModules = do
-  lib <- guessTarget "src/Lib.hs" Nothing
-  test <- guessTarget "test/Spec.hs" Nothing
+loadModules :: FilePath -> FilePath -> GhcT IO Module
+loadModules fileBeingChecked testFile = do
+  lib <- guessTarget fileBeingChecked Nothing
+  test <- guessTarget testFile Nothing
   setTargets [lib, test]
   _ <- load LoadAllTargets
   findModule (mkModuleName "Main") Nothing
 
-setupPackages :: GhcT IO (DynFlags, [PackageKey])
-setupPackages = do
+setupPackages :: FilePath -> GhcT IO (DynFlags, [PackageKey])
+setupPackages fileBeingChecked = do
+  packages <- liftIO $ findPkgDbs fileBeingChecked
   flags <- getSessionDynFlags
   let
     flags' =
       flags
         { hscTarget = HscInterpreted
         , ghcLink = LinkInMemory
-        , extraPkgConfs = (projDb :) . (stackDb :) . extraPkgConfs flags
+        , extraPkgConfs = const packages
         }
   _ <- setSessionDynFlags flags'
   liftIO $ initPackages flags'
@@ -282,11 +292,6 @@ simplifyLeft f predTree =
     _ ->
       Nothing
 
-stackDb :: PkgConfRef
-stackDb = PkgConfFile "/home/eric/.stack/snapshots/x86_64-linux-nix/lts-5.9/7.10.3/pkgdb"
-projDb :: PkgConfRef
-projDb = PkgConfFile "/home/eric/code/phantheck/.stack-work/install/x86_64-linux-nix/lts-5.9/7.10.3/pkgdb"
-
 -- * Utils
 
 -- | Recursively splits a type until finding the desired constructor. Then returns the type with that @TyCon@.
@@ -361,3 +366,17 @@ modifyNonCanonicalEvPred _ _ = Nothing
 eqPredToType :: PredTree -> Maybe PredType
 eqPredToType (EqPred NomEq ty1 ty2) = Just $ mkEqPred ty1 ty2
 eqPredToType _ = Nothing
+
+findPkgDbs :: (IOish m) => FilePath -> m [PkgConfRef]
+findPkgDbs fp = do
+  Cradle{..} <- findCradle fp
+  (fmap . fmap) pkgDbConvert $ runQuery (defaultQueryEnv cradleRootDir cradleDistDir) packageDbStack
+  where
+    -- If @ghc-mod@ can't find the @cradle@ there's not much we can do to recover, just @error@
+    findCradle = fmap (either (error . show) id . fst) . runGhcModT defaultOptions . findCradle' . takeDirectory
+
+pkgDbConvert :: ChPkgDb -> PkgConfRef
+pkgDbConvert ChPkgGlobal = GlobalPkgConf
+pkgDbConvert ChPkgUser = UserPkgConf
+pkgDbConvert (ChPkgSpecific fp) = PkgConfFile fp
+

@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fplugin GHC.Type.Test.Plugin #-}
+{-# OPTIONS_GHC -fplugin-opt GHC.Type.Test.Plugin:test/Spec.hs #-}
 
 module Lib where
 
