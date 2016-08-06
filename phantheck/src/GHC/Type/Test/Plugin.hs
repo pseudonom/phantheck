@@ -1,6 +1,7 @@
 module GHC.Type.Test.Plugin (plugin) where
 
 import Control.Arrow (second, (***))
+import Control.Lens hiding (Strict, cons)
 import Control.Monad ((<=<))
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT)
@@ -35,7 +36,8 @@ import Plugins (Plugin (..), defaultPlugin, CommandLineOption)
 import Serialized
 import TcEvidence (EvTerm)
 import TcPluginM
-import TcRnTypes (Ct(..), TcPlugin(..), TcPluginResult(..), CtEvidence(..), ctEvidence, ctEvPred, TcLclEnv(..))
+import TcRnTypes (Ct(..), TcPlugin(..), TcPluginResult(..), CtEvidence(..), ctEvPred, TcLclEnv(..))
+import qualified TcRnTypes
 import TcType (TcPredType)
 import TyCon
 import Type
@@ -64,39 +66,31 @@ phantheckPlugin [testFile] =
     , tcPluginStop = \_ -> pure ()
     }
 
-justify :: Ct -> Maybe (EvTerm, Ct)
-justify ct = (,ct) <$> evMagic ct
+justifyAddPosts :: TyCons -> Ct -> Maybe (EvTerm, Ct)
+justifyAddPosts tyCons ct =
+  (\(t1, t2) -> (evByFiat "phantheck" t1 t2, ct) <$ preview (addPropsOptic tyCons) t1) <=<
+  preview nonCanonicalNomEqPred $ ct
 
 solve :: (TyCons, Mode) -> [Ct] -> [Ct] -> [Ct] -> TcPluginM TcPluginResult
 solve (tyCons@TyCons{..}, mode) _ _ wanted =
   pure $
     case mode of
       Lax ->
-        let
-          addPosts = filter (isJust . simplify (fmap unTagged . checkAddProps tyCons)) wanted
-          fromJustNote = fromMaybe (error "Must be @EqPred NomEq@ because @simplifyEqPred@ checks for that")
-        in
-        TcPluginOk ((fromJustNote . justify) <$> addPosts) []
+        TcPluginOk (mapMaybe (justifyAddPosts tyCons) wanted) []
       Strict tests ->
         let
-          (original, simplified) =
-            unzip $
-              mapMaybe
-                (\ct -> (,) <$> justify ct <*> simplify (simplifyPostconditions tyCons tests) ct)
-                wanted
+          simplify = traverseOf (nonCanonicalNomEqPred . _1) (simplifyPostconditions tyCons tests)
+          (original, simplified) = unzip $ mapMaybe (\ct -> (,) <$> justifyAddPosts tyCons ct <*> simplify ct) wanted
         in
         TcPluginOk original simplified
 
-simplify :: (Type -> Maybe Type) -> Ct -> Maybe Ct
-simplify = modifyNonCanonicalEvPred . simplifyEqPred . simplifyLeft
-
-simplifyEqPred :: (PredTree -> Maybe PredTree) -> TcPredType -> Maybe TcPredType
-simplifyEqPred f =
-  eqPredToType <=< f . classifyPredType
+nonCanonicalNomEqPred :: Traversal' Ct (Type, Type)
+nonCanonicalNomEqPred = nonCanonicalEvidence . evPred . nomEqPred
 
 simplifyPostconditions :: TyCons -> [(Test, Result)] -> Type -> Maybe Type
 simplifyPostconditions tyCons tests =
-  fmap (mkList . map (mkStrLitTy . fsLit . unTagged) . postconditions tyCons tests) . checkAddProps tyCons
+  fmap (review (tyList typeSymbolKind) . map (mkStrLitTy . fsLit . unTagged) . postconditions tyCons tests) .
+  preview (addPropsOptic tyCons)
 
 data TestResult
   = NoPrereq
@@ -104,17 +98,16 @@ data TestResult
   | Passed
   deriving (Eq, Show)
 
-postconditions :: TyCons -> [(Test, Result)] -> Tagged "AddProps" Type -> [Tagged "prop" String]
-postconditions TyCons{..} tests ty =
+postconditions :: TyCons -> [(Test, Result)] -> (Tagged "functionName" Type, [Tagged "prop" Type]) -> [Tagged "prop" String]
+postconditions TyCons{..} tests (fnName, props) =
   map fst . filter ((== Determinate Passed) . snd) $ postconditionsAndResults
   where
     testsForFunction = filter (\(Test{..}, _) -> fnName == (mkStrLitTy . fsLit <$> functionName)) tests
-    fnName = fst . extractAddProps $ ty
     postconditionsAndResults :: [(Tagged "prop" String, PostconditionResult)]
     postconditionsAndResults =
       fmap (second aggregatePostconditionResults) .
       groupOnSplit id .
-      map (\tr@(Test{..}, _) -> (postcondition,) . lookupTest ty $ tr) $
+      map (\tr@(Test{..}, _) -> (postcondition,) . mkTestResult props $ tr) $
       testsForFunction
 
 aggregatePostconditionResults :: [TestResult] -> PostconditionResult
@@ -139,7 +132,7 @@ combineResults l r
 
 initialize :: FilePath -> TcPluginM (TyCons, Mode)
 initialize testFile = do
-  tyCons <- fromJustNote <$> getPhantheckConstructors
+  tyCons <- fromJustTyCons <$> getPhantheckConstructors
   tcPluginIO (lookupEnv "PHANTHECK_IN_PROGRESS") >>= \case
     Nothing -> do
       fileBeingChecked <- unpackFS . srcSpanFile . tcl_loc . snd <$> getEnvs
@@ -147,7 +140,7 @@ initialize testFile = do
         liftIO $ setEnv "PHANTHECK_IN_PROGRESS" "TRUE"
         _ <- setupPackages fileBeingChecked
         testMod <- loadModules fileBeingChecked testFile
-        Just modInfo <- getModuleInfo testMod
+        modInfo <- fromJustModInfo <$> getModuleInfo testMod
         setContext [IIModule $ moduleName testMod]
         testDb <- fmap catMaybes . mapM (testAndResult tyCons) $ modInfoExports modInfo
         liftIO $ mapM_ (putStrLn . showTest) testDb
@@ -155,7 +148,8 @@ initialize testFile = do
     Just _ ->
       pure (tyCons, Lax)
   where
-    fromJustNote = fromMaybe (error "Could not find @phantheck@ type constructors")
+    fromJustTyCons = fromMaybe (error "Could not find @phantheck@ type constructors")
+    fromJustModInfo = fromMaybe (error "Couldn't find module info about test module")
 
 -- | Load required modules and return test module
 loadModules :: FilePath -> FilePath -> GhcT IO Module
@@ -187,25 +181,23 @@ mkTest tyCons@TyCons{..} nm = do
   mAnn <- listToMaybe <$> findGlobalAnns deserializeWithData (NamedTarget nm)
   pure $ do
     (functionName, postcondition) <- (Tagged *** Tagged) <$> mAnn :: Maybe (Tagged "functionName" String, Tagged "prop" String)
-    preconditionsTy <- checkProps tyCons =<< findTy props (varType export)
-    let
-      preconditions = extractProps preconditionsTy
+    preconditions <- fmap fst . preview (propsOptic tyCons) =<< findTy propsTc (varType export)
     pure Test{..}
   where
     fromJustNote = fromMaybe (error "We got this @nm@ from @modInfoExports@ so it should definitely be available")
 
 data TyCons
   = TyCons
-  { props :: TyCon
-  , addProps :: TyCon
+  { propsTc :: TyCon
+  , addPropsTc :: TyCon
   }
 
 show' :: (Outputable a) => a -> String
 show' = showSDocUnsafe . ppr
 
-lookupTest :: Tagged "AddProps" Type -> (Test, Result) -> TestResult
-lookupTest props (Test{..}, r)
-  | (unTagged <$> preconditions) `subSetTy` (unTagged <$> snd (extractAddProps props)) =
+mkTestResult :: [Tagged "prop" Type] -> (Test, Result) -> TestResult
+mkTestResult props (Test{..}, r)
+  | (unTagged <$> preconditions) `subSetTy` (unTagged <$> props) =
     case r of
       Success{} ->
         Passed
@@ -214,43 +206,35 @@ lookupTest props (Test{..}, r)
   | otherwise =
     NoPrereq
 
-checkProps :: TyCons -> Type -> Maybe (Tagged "Props" Type)
-checkProps TyCons{..} ty = do
-  (tyCon, [propsTy, _val]) <- splitTyConApp_maybe ty
-  if tyCon `eqTyCon` props
-    then
-      Just (Tagged ty) <* elems propsTy
-    else
-      Nothing
+propsOptic :: TyCons -> Prism' Type ([Tagged "prop" Type], Tagged "val" Type)
+propsOptic TyCons{..} =
+  prism reconstruct deconstruct
+    where
+      deconstruct ty =
+        maybe (Left ty) Right $ do
+          (tyCon, [propsTy, val]) <- splitTyConApp_maybe ty
+          if tyCon `eqTyCon` propsTc
+            then
+              (,Tagged val) . map Tagged <$> preview (tyList typeSymbolKind) propsTy
+            else
+              Nothing
+      reconstruct (props, ty) =
+        mkTyConApp propsTc [review (tyList typeSymbolKind) $ unTagged <$> props, unTagged ty]
 
-extractProps :: Tagged "Props" Type -> [Tagged "prop" Type]
-extractProps (Tagged ty) =
-  map Tagged . fromJustNote . elems . head . snd . splitTyConApp $ ty
-  where
-    fromJustNote =
-      fromMaybe
-        (error $
-           "@Props@ should have had a type-level list. " <>
-           "Instead it looks like @" <> show' ty <> "@.")
-
-checkAddProps :: TyCons -> Type -> Maybe (Tagged "AddProps" Type)
-checkAddProps TyCons{..} ty = do
-  (tyCon, [_fnName, propsTy]) <- splitTyConApp_maybe ty
-  if tyCon `eqTyCon` addProps
-    then
-      Just (Tagged ty) <* elems propsTy
-    else
-      Nothing
-
-extractAddProps :: Tagged "AddProps" Type -> (Tagged "functionName" Type, [Tagged "prop" Type])
-extractAddProps (Tagged ty) =
-  (\[fnName, propsTy] -> (Tagged fnName, map Tagged . fromJustNote . elems $ propsTy)) . snd . splitTyConApp $ ty
-  where
-    fromJustNote =
-      fromMaybe
-        (error $
-           "@AddProps@ should have had a function name and type-level list. " <>
-           "Instead it looks like @" <> show' ty <> "@.")
+addPropsOptic :: TyCons -> Prism' Type (Tagged "functionName" Type, [Tagged "prop" Type])
+addPropsOptic TyCons{..} =
+  prism reconstruct deconstruct
+    where
+      deconstruct ty =
+        maybe (Left ty) Right $ do
+          (tyCon, [fnName, propsTy]) <- splitTyConApp_maybe ty
+          if tyCon `eqTyCon` addPropsTc
+            then
+              (Tagged fnName,) . map Tagged <$> preview (tyList typeSymbolKind) propsTy
+            else
+              Nothing
+      reconstruct (fnName, props) =
+        mkTyConApp addPropsTc [unTagged fnName, review (tyList typeSymbolKind) $ unTagged <$> props]
 
 testAndResult:: TyCons -> Name -> GhcT IO (Maybe (Test, Result))
 testAndResult tyCons nm =
@@ -278,19 +262,10 @@ getPhantheckConstructors = do
   testR <- findImportedModule (mkModuleName "GHC.Type.Test") (Just $ fsLit "phantheck")
   case testR of
     (Found _ testM) -> do
-      props <- tcLookupTyCon =<< lookupOrig testM (mkTcOcc "Props")
-      addProps <- tcLookupTyCon =<< lookupOrig testM (mkTcOcc "AddProps")
+      propsTc <- tcLookupTyCon =<< lookupOrig testM (mkTcOcc "Props")
+      addPropsTc <- tcLookupTyCon =<< lookupOrig testM (mkTcOcc "AddProps")
       pure . Just $ TyCons{..}
     _ -> pure Nothing
-
--- | Applies function to @x@ in @x ~ y@
-simplifyLeft :: (Type -> Maybe Type) -> PredTree -> Maybe PredTree
-simplifyLeft f predTree =
-  case predTree of
-    EqPred NomEq ty1 ty2 ->
-      (\x -> EqPred NomEq x ty2) <$> f ty1
-    _ ->
-      Nothing
 
 -- * Utils
 
@@ -307,14 +282,6 @@ findTy desired ty =
     Nothing
       -> Nothing
 
-evMagic :: Ct -> Maybe EvTerm
-evMagic ct =
-  case classifyPredType . ctEvPred . ctEvidence $ ct of
-    EqPred NomEq t1 t2 ->
-      Just (evByFiat "phantheck" t1 t2)
-    _ ->
-      Nothing
-
 subSetTy :: [Type] -> [Type] -> Bool
 subSetTy = subSetBy eqType
 
@@ -325,30 +292,26 @@ subSetBy f needle haystack = all (\n -> isJust $ List.find (f n) haystack) needl
 eqTyCon :: TyCon -> TyCon -> Bool
 eqTyCon = (==) `on` (occName . tyConName)
 
--- | Turn a list of types into a type-level list
-mkList :: [Type] -> Type
-mkList = List.foldl' (\acc el -> mkAppTy (mkTyConApp cons [typeSymbolKind, el]) acc) (mkTyConApp nil [typeSymbolKind])
-
--- | '[]
-nil :: TyCon
-nil = promoteDataCon nilDataCon
--- | ':
-cons :: TyCon
-cons = promoteDataCon consDataCon
-
--- | Transforms type-level list into list of types
-elems :: Type -> Maybe [Type]
-elems list =
-  go list []
-  where
-    go list' xs =
-      case splitTyConApp_maybe list' of
-        Just (_cons, [_kind, x, rest]) ->
-          go rest $ x : xs
-        Just (_cons, [_kind]) ->
-          Just xs
-        _ ->
-          Nothing
+tyList :: Type -> Prism' Type [Type]
+tyList kind =
+  prism construct deconstruct
+    where
+      construct =
+        List.foldl' (\acc el -> mkAppTy (mkTyConApp cons [kind, el]) acc) (mkTyConApp nil [kind])
+          where
+            nil = promoteDataCon nilDataCon
+            cons = promoteDataCon consDataCon
+      deconstruct ty =
+        maybe (Left ty) Right $ go ty []
+          where
+            go list' xs =
+              case splitTyConApp_maybe list' of
+                Just (_cons, [_kind, x, rest]) ->
+                  go rest $ x : xs
+                Just (_cons, [_kind]) ->
+                  Just xs
+                _ ->
+                  Nothing
 
 groupOnSplit :: (Ord b) => (a -> (b, c)) -> [a] -> [(b, [c])]
 groupOnSplit f =
@@ -357,15 +320,24 @@ groupOnSplit f =
     split [] = error "Empty list after @groupBy@ is nonsensical"
     split xs@(x:_) = (fst . f $ x, snd . f <$> xs)
 
-modifyNonCanonicalEvPred :: (TcPredType -> Maybe TcPredType) -> Ct -> Maybe Ct
-modifyNonCanonicalEvPred f (CNonCanonical ev) =
-  (\x -> CNonCanonical ev{ctev_pred = x}) <$> f (ctev_pred ev)
-modifyNonCanonicalEvPred _ _ = Nothing
+evPred :: Lens' CtEvidence PredType
+evPred = lens ctev_pred (\ev pred -> ev{ctev_pred = pred})
 
--- | Convert a @PredTree@ back into a @PredType@
-eqPredToType :: PredTree -> Maybe PredType
-eqPredToType (EqPred NomEq ty1 ty2) = Just $ mkEqPred ty1 ty2
-eqPredToType _ = Nothing
+nonCanonicalEvidence :: Prism' Ct CtEvidence
+nonCanonicalEvidence =
+  prism CNonCanonical deconstruct
+    where
+      deconstruct (CNonCanonical ev) = Right ev
+      deconstruct ct = Left ct
+
+nomEqPred :: Prism' PredType (Type, Type)
+nomEqPred =
+  prism (uncurry mkEqPred) deconstruct
+    where
+      deconstruct pt =
+        case classifyPredType pt of
+          EqPred NomEq ty1 ty2 -> Right (ty1, ty2)
+          _ -> Left pt
 
 findPkgDbs :: (IOish m) => FilePath -> m [PkgConfRef]
 findPkgDbs fp = do
