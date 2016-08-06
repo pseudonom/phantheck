@@ -1,12 +1,16 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fplugin GHC.Type.Test.Plugin #-}
 
 module Lib where
 
 import Prelude hiding (min)
 import qualified Data.List as List
+import Language.Haskell.TH
 
 import GHC.Type.Test
+
+$(addDependentFileRelative "../test/Spec.hs" >> pure [])
 
 min :: Props '["non-empty", "ascending"] [a] -> a
 min (Props xs) = head xs

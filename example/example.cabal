@@ -21,6 +21,7 @@ library
   exposed-modules:     Lib
   build-depends:       base >= 4.7 && < 5
                      , phantheck
+                     , template-haskell
   default-extensions:  DataKinds
                        KindSignatures
                        PolyKinds
@@ -36,8 +37,8 @@ test-suite spec
   build-depends:       base
                      , example
                      , hspec
-                     , QuickCheck
                      , phantheck
+                     , QuickCheck
   default-extensions:  DataKinds
                        FlexibleInstances
                        PolyKinds

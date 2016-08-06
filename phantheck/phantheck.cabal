@@ -21,11 +21,14 @@ library
   exposed-modules:     GHC.Type.Test
                      , GHC.Type.Test.Plugin
   build-depends:       base >= 4.7 && < 5
+                     , directory
+                     , filepath
                      , ghc
                      , ghc-paths
                      , ghc-tcplugins-extra
                      , QuickCheck
                      , tagged
+                     , template-haskell
                      , transformers
   default-extensions:  ConstraintKinds
                        DataKinds
