@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -fplugin GHC.Type.Test.Plugin #-}
 {-# OPTIONS_GHC -fplugin-opt GHC.Type.Test.Plugin:test/Spec.hs #-}
 
@@ -8,12 +9,13 @@ module Lib where
 import Prelude hiding (min)
 import qualified Data.List as List
 import Language.Haskell.TH
+import Language.Haskell.TH.Syntax
 
 import GHC.Type.Test
 
 $(addDependentFileRelative "../test/Spec.hs" >> pure [])
 
-min :: Props '["non-empty", "ascending"] [a] -> a
+min :: (Preconditions '["non-empty", "ascending"] pre) => Props pre [a] -> a
 min (Props xs) = head xs
 
 sort :: (Ord a) => Props pre [a] -> Props (AddProps "sort" pre) [a]

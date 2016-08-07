@@ -67,8 +67,8 @@ phantheckPlugin [testFile] =
     }
 
 justifyAddPosts :: TyCons -> Ct -> Maybe (EvTerm, Ct)
-justifyAddPosts tyCons ct =
-  (\(t1, t2) -> (evByFiat "phantheck" t1 t2, ct) <$ preview (addPropsOptic tyCons) t1) <=<
+justifyAddPosts tyCons@TyCons{..} ct =
+  (\(t1, t2) -> (evByFiat "phantheck" t1 t2, ct) <$ preview (tyConInTree addPropsTc . addPropsOptic tyCons) t1) <=<
   preview nonCanonicalNomEqPred $ ct
 
 solve :: (TyCons, Mode) -> [Ct] -> [Ct] -> [Ct] -> TcPluginM TcPluginResult
@@ -79,7 +79,7 @@ solve (tyCons@TyCons{..}, mode) _ _ wanted =
         TcPluginOk (mapMaybe (justifyAddPosts tyCons) wanted) []
       Strict tests ->
         let
-          simplify = traverseOf (nonCanonicalNomEqPred . _1) (simplifyPostconditions tyCons tests)
+          simplify = traverseOf (nonCanonicalNomEqPred . _1 . tyConInTree addPropsTc) (simplifyPostconditions tyCons tests)
           (original, simplified) = unzip $ mapMaybe (\ct -> (,) <$> justifyAddPosts tyCons ct <*> simplify ct) wanted
         in
         TcPluginOk original simplified
@@ -181,7 +181,7 @@ mkTest tyCons@TyCons{..} nm = do
   mAnn <- listToMaybe <$> findGlobalAnns deserializeWithData (NamedTarget nm)
   pure $ do
     (functionName, postcondition) <- (Tagged *** Tagged) <$> mAnn :: Maybe (Tagged "functionName" String, Tagged "prop" String)
-    preconditions <- fmap fst . preview (propsOptic tyCons) =<< findTy propsTc (varType export)
+    preconditions <- fmap fst . preview (tyConInTree propsTc . propsOptic tyCons) $ varType export
     pure Test{..}
   where
     fromJustNote = fromMaybe (error "We got this @nm@ from @modInfoExports@ so it should definitely be available")
@@ -269,18 +269,17 @@ getPhantheckConstructors = do
 
 -- * Utils
 
--- | Recursively splits a type until finding the desired constructor. Then returns the type with that @TyCon@.
--- @findTy Props ((->) (Props '["a", "b"] Int) Int)@ would return @Props '["a", "b"] Int@
-findTy :: TyCon -> Type -> Maybe Type
-findTy desired ty =
+tyConInTree :: TyCon -> Traversal' Type Type
+tyConInTree desired f ty =
   case splitTyConApp_maybe ty of
     Just (tyCon, apps)
       | tyCon `eqTyCon` desired
-      -> Just ty
+      -> f ty
       | otherwise
-      -> listToMaybe $ mapMaybe (findTy desired) apps
+      -> mkTyConApp tyCon <$> traverse (tyConInTree desired f) apps
     Nothing
-      -> Nothing
+      -> pure ty
+
 
 subSetTy :: [Type] -> [Type] -> Bool
 subSetTy = subSetBy eqType

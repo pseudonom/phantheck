@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableInstances #-}
+
 module GHC.Type.Test where
 
 import GHC.TypeLits
@@ -9,12 +11,17 @@ import System.FilePath ((</>), takeDirectory)
 
 newtype Props (ps :: [Symbol]) a = Props {unProps :: a } deriving (Show, Eq, Ord)
 type family AddProps (fn :: Symbol) (pres :: [Symbol]) :: [Symbol]
--- type instance AddProps "sort" '["non-empty"] = '["sorted", "non-empty"]
+type family And (a :: Bool) (b :: Bool) :: Bool where
+  'True `And` 'True = 'True
+  a `And` b = 'False
 type family Elem (y :: k) (xs :: [k]) :: Bool where
   y `Elem` '[] = 'False
   y `Elem` y ': xs = 'True
   y `Elem` x ': xs = y `Elem` xs
-type Precondition a props = (a `Elem` props) ~ 'True
+type family Subset (xs :: [k]) (ys :: [k]) :: Bool where
+  '[] `Subset` ys = 'True
+  (x ': xs) `Subset` ys = (x `Elem` ys) `And` (xs `Subset` ys)
+type Preconditions xs ys = Subset xs ys ~ 'True
 
 addDependentFileRelative :: FilePath -> Q ()
 addDependentFileRelative relativeFile = do
